@@ -30,6 +30,7 @@
         }
         .form-group textarea { min-height: 100px; }
         .form-group input:focus, .form-group textarea:focus, .form-group select:focus { border-color: var(--accent); background: #fff; }
+        .form-group input[type="file"] { padding: 10px; }
         .btn {
             width: 100%; padding: 14px; border: none; border-radius: var(--radius);
             font-size: 16px; font-weight: 600; cursor: pointer; background: var(--accent);
@@ -42,6 +43,10 @@
         .success .icon { font-size: 48px; margin-bottom: 12px; }
         .form-container { display: block; }
         .form-container.hidden { display: none; }
+        .preview-img {
+            max-width: 100%; max-height: 150px; border-radius: 8px;
+            margin-top: 8px; display: none;
+        }
     </style>
 </head>
 <body>
@@ -72,6 +77,11 @@
                 <label>Текст предложения</label>
                 <textarea id="text" placeholder="Я предлагаю сделать рекламу о..."></textarea>
             </div>
+            <div class="form-group">
+                <label>Картинка (можно прикрепить)</label>
+                <input type="file" id="imageInput" accept="image/*" onchange="previewImage()">
+                <img id="preview" class="preview-img">
+            </div>
             <button class="btn" id="submitBtn" onclick="submitProposal()">📤 Отправить заявку</button>
         </div>
 
@@ -88,10 +98,24 @@
         const REPO_OWNER = 'Bat0nCH1K';
         const REPO_NAME = 'YourBannerLi7';
 
+        function previewImage() {
+            const file = document.getElementById('imageInput').files[0];
+            const preview = document.getElementById('preview');
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    preview.src = e.target.result;
+                    preview.style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
         async function submitProposal() {
             const name = document.getElementById('name').value.trim();
             const status = document.getElementById('status').value;
             const text = document.getElementById('text').value.trim();
+            const imageFile = document.getElementById('imageInput').files[0];
             const btn = document.getElementById('submitBtn');
 
             if (!name || !status || !text) {
@@ -102,11 +126,26 @@
             btn.disabled = true;
             btn.textContent = 'Отправка...';
 
+            let imageBase64 = '';
+            if (imageFile) {
+                imageBase64 = await new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.readAsDataURL(imageFile);
+                });
+            }
+
             const title = `[${status}] ${name} — ${text.slice(0, 50)}${text.length > 50 ? '...' : ''}`;
-            const body = `**Имя:** ${name}\n**Статус:** ${status}\n\n**Предложение:**\n${text}\n\n---\n_Заявка создана через сайт_`;
+            let body = `**Имя:** ${name}\n**Статус:** ${status}\n\n**Предложение:**\n${text}`;
+            
+            if (imageBase64) {
+                body += `\n\n![Картинка](${imageBase64})`;
+            }
+            
+            body += `\n\n---\n_Заявка создана через сайт_`;
 
             try {
-                const response = await fetch(`https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/issues`, {
+                const response = await fetch(`https://corsproxy.io/?url=https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/issues`, {
                     method: 'POST',
                     headers: {
                         'Authorization': `token ${GITHUB_TOKEN}`,
@@ -120,6 +159,8 @@
                     document.getElementById('formContainer').classList.add('hidden');
                     document.getElementById('successMessage').classList.add('active');
                 } else {
+                    const err = await response.json();
+                    console.error(err);
                     throw new Error('Ошибка GitHub API');
                 }
             } catch (error) {
