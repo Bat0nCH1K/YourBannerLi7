@@ -42,6 +42,7 @@
         .note { text-align: center; color: var(--text-secondary); font-size: 12px; margin-top: 12px; }
         .images-preview { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
         .images-preview img { width: 60px; height: 60px; object-fit: cover; border-radius: 8px; }
+        .hint { font-size: 11px; color: #999; margin-top: 4px; }
     </style>
 </head>
 <body>
@@ -50,6 +51,11 @@
             <h1>📺 Школьное ТВ</h1>
             <p class="subtitle">Предложи свой пост для рекламы</p>
             <div class="form-group"><label>Твоё имя</label><input type="text" id="userName" placeholder="Иван Петров"></div>
+            <div class="form-group">
+                <label>Telegram username (для ответа)</label>
+                <input type="text" id="telegramUser" placeholder="@username">
+                <div class="hint">Если оставишь пустым — ответа не будет</div>
+            </div>
             <div class="form-group"><label>Статус</label>
                 <select id="userStatus">
                     <option value="">Выбери...</option>
@@ -69,12 +75,12 @@
             <div class="form-group"><label>Дата показа</label><input type="date" id="startDate"></div>
             <div class="form-group"><label>Длительность (дней)</label><input type="number" id="duration" value="1" min="1" max="30"></div>
             <button class="btn" id="submitBtn" onclick="sendToTelegram()">📤 Отправить</button>
-            <p class="note">Заявка уйдёт админу в Telegram</p>
+            <p class="note">Заявка уйдёт админу в Telegram. Если указал username — жди ответа.</p>
         </div>
         <div class="success" id="successMessage">
             <div style="font-size:48px;">✅</div>
             <h2>Заявка отправлена!</h2>
-            <p style="color:var(--text-secondary); margin-top:8px;">Админ увидит её и примет решение</p>
+            <p style="color:var(--text-secondary); margin-top:8px;" id="successText">Админ увидит её и примет решение</p>
             <button class="btn" style="margin-top:20px;" onclick="location.reload()">Отправить ещё одну</button>
         </div>
     </div>
@@ -99,8 +105,19 @@
             });
         }
 
+        function base64ToBlob(base64, mimeType) {
+            const byteCharacters = atob(base64.split(',')[1]);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            return new Blob([byteArray], { type: mimeType });
+        }
+
         async function sendToTelegram() {
             const name = document.getElementById('userName').value.trim();
+            const tgUser = document.getElementById('telegramUser').value.trim();
             const status = document.getElementById('userStatus').value;
             const text = document.getElementById('postText').value.trim();
             const startDate = document.getElementById('startDate').value;
@@ -111,43 +128,54 @@
             if (!startDate) return alert('Выбери дату');
             if (new Date(startDate).getFullYear() > 2030) return alert('Дата слишком далеко');
 
-            btn.disabled = true; btn.textContent = 'Отправка...';
+            btn.disabled = true;
+            btn.textContent = 'Отправка...';
 
-            // Формируем текст сообщения
             let message = `📺 <b>Новая заявка!</b>\n\n`;
             message += `<b>Имя:</b> ${name}\n`;
+            if (tgUser) message += `<b>Telegram:</b> ${tgUser}\n`;
             message += `<b>Статус:</b> ${status}\n`;
             message += `<b>Дата показа:</b> ${startDate}\n`;
             message += `<b>Длительность:</b> ${duration} дн.\n\n`;
             message += `<b>Предложение:</b>\n${text}`;
 
-            // Если есть картинки — отправляем их отдельными сообщениями
             try {
                 await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ chat_id: CHAT_ID, text: message, parse_mode: 'HTML' })
                 });
 
-                // Отправляем картинки (каждую отдельным сообщением с подписью)
                 for (let i = 0; i < uploadedImages.length; i++) {
-                    const caption = i === 0 ? `🖼 Картинки к заявке от ${name}` : '';
+                    const base64 = uploadedImages[i];
+                    const mime = base64.match(/data:(image\/\w+);base64,/)?.[1] || 'image/png';
+                    const blob = base64ToBlob(base64, mime);
+                    const formData = new FormData();
+                    formData.append('chat_id', CHAT_ID);
+                    formData.append('photo', blob, `image_${i}.${mime.split('/')[1]}`);
+                    if (i === 0) {
+                        formData.append('caption', `🖼 Картинки к заявке от ${name}`);
+                    }
+
                     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            chat_id: CHAT_ID,
-                            photo: uploadedImages[i],
-                            caption: caption,
-                            parse_mode: 'HTML'
-                        })
+                        body: formData
                     });
                 }
 
                 document.getElementById('formContainer').classList.add('hidden');
+                const successText = document.getElementById('successText');
+                if (tgUser) {
+                    successText.textContent = `Админ увидит заявку и ответит тебе в Telegram на ${tgUser}`;
+                } else {
+                    successText.textContent = 'Админ увидит заявку и примет решение';
+                }
                 document.getElementById('successMessage').classList.add('active');
             } catch (e) {
+                console.error(e);
                 alert('Ошибка. Попробуй ещё раз.');
-                btn.disabled = false; btn.textContent = '📤 Отправить';
+                btn.disabled = false;
+                btn.textContent = '📤 Отправить';
             }
         }
     </script>
