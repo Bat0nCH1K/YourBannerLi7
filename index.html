@@ -40,9 +40,15 @@
         .success.active { display: block; }
         .form-container.hidden { display: none; }
         .note { text-align: center; color: var(--text-secondary); font-size: 12px; margin-top: 12px; }
-        .images-preview { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-        .images-preview img { width: 60px; height: 60px; object-fit: cover; border-radius: 8px; }
         .hint { font-size: 11px; color: #999; margin-top: 4px; }
+        .subscribe-block {
+            margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border);
+            text-align: center;
+        }
+        .subscribe-btn {
+            background: #8774e1; display: inline-block; padding: 10px 20px;
+            border-radius: 25px; color: white; text-decoration: none; font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -54,7 +60,6 @@
             <div class="form-group">
                 <label>Telegram username (для ответа)</label>
                 <input type="text" id="telegramUser" placeholder="@username">
-                <div class="hint">Если оставишь пустым — ответа не будет</div>
             </div>
             <div class="form-group"><label>Статус</label>
                 <select id="userStatus">
@@ -68,14 +73,19 @@
             </div>
             <div class="form-group"><label>Текст поста</label><textarea id="postText" placeholder="Опиши свою идею..."></textarea></div>
             <div class="form-group">
-                <label>Картинки (можно несколько)</label>
-                <input type="file" id="postImages" accept="image/*" multiple onchange="previewImages()">
-                <div class="images-preview" id="imagesPreview"></div>
+                <label>Ссылки на картинки (через запятую)</label>
+                <input type="text" id="imageLinks" placeholder="https://i.imgur.com/...">
             </div>
             <div class="form-group"><label>Дата показа</label><input type="date" id="startDate"></div>
             <div class="form-group"><label>Длительность (дней)</label><input type="number" id="duration" value="1" min="1" max="30"></div>
-            <button class="btn" id="submitBtn" onclick="sendToTelegram()">📤 Отправить</button>
-            <p class="note">Заявка уйдёт админу в Telegram. Если указал username — жди ответа.</p>
+            <button class="btn" id="submitBtn" onclick="sendToTelegram()">📤 Отправить заявку</button>
+
+            <!-- Блок подписки на рассылку (Manybot) -->
+            <div class="subscribe-block">
+                <p style="font-size:14px;">Хочешь первым узнавать о новых одобренных баннерах?</p>
+                <a class="subscribe-btn" href="https://t.me/BannerLi7_bot?start=subscribe" target="_blank">🔔 Подписаться на рассылку</a>
+                <div class="hint">Ты получишь уведомление, когда твоя заявка будет одобрена</div>
+            </div>
         </div>
         <div class="success" id="successMessage">
             <div style="font-size:48px;">✅</div>
@@ -87,39 +97,13 @@
     <script>
         const BOT_TOKEN = '8645752280:AAEi-rfUxaMtVmGaj-7E4fsvfkdVGVRKeFg';
         const CHAT_ID = '6468705214';
-        let uploadedImages = [];
-
-        function previewImages() {
-            uploadedImages = [];
-            const preview = document.getElementById('imagesPreview');
-            preview.innerHTML = '';
-            Array.from(document.getElementById('postImages').files).forEach(file => {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    uploadedImages.push(e.target.result);
-                    const img = document.createElement('img');
-                    img.src = e.target.result;
-                    preview.appendChild(img);
-                };
-                reader.readAsDataURL(file);
-            });
-        }
-
-        function base64ToBlob(base64, mimeType) {
-            const byteCharacters = atob(base64.split(',')[1]);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-                byteNumbers[i] = byteCharacters.charCodeAt(i);
-            }
-            const byteArray = new Uint8Array(byteNumbers);
-            return new Blob([byteArray], { type: mimeType });
-        }
 
         async function sendToTelegram() {
             const name = document.getElementById('userName').value.trim();
             const tgUser = document.getElementById('telegramUser').value.trim();
             const status = document.getElementById('userStatus').value;
             const text = document.getElementById('postText').value.trim();
+            const imageLinks = document.getElementById('imageLinks').value.trim();
             const startDate = document.getElementById('startDate').value;
             const duration = parseInt(document.getElementById('duration').value) || 1;
             const btn = document.getElementById('submitBtn');
@@ -137,31 +121,17 @@
             message += `<b>Статус:</b> ${status}\n`;
             message += `<b>Дата показа:</b> ${startDate}\n`;
             message += `<b>Длительность:</b> ${duration} дн.\n\n`;
-            message += `<b>Предложение:</b>\n${text}`;
+            message += `<b>Предложение:</b>\n${text}\n`;
+            if (imageLinks) {
+                message += `\n<b>🖼 Ссылки на картинки:</b>\n${imageLinks}`;
+            }
 
             try {
                 await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ chat_id: CHAT_ID, text: message, parse_mode: 'HTML' })
+                    body: JSON.stringify({ chat_id: CHAT_ID, text: message, parse_mode: 'HTML', disable_web_page_preview: false })
                 });
-
-                for (let i = 0; i < uploadedImages.length; i++) {
-                    const base64 = uploadedImages[i];
-                    const mime = base64.match(/data:(image\/\w+);base64,/)?.[1] || 'image/png';
-                    const blob = base64ToBlob(base64, mime);
-                    const formData = new FormData();
-                    formData.append('chat_id', CHAT_ID);
-                    formData.append('photo', blob, `image_${i}.${mime.split('/')[1]}`);
-                    if (i === 0) {
-                        formData.append('caption', `🖼 Картинки к заявке от ${name}`);
-                    }
-
-                    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
-                        method: 'POST',
-                        body: formData
-                    });
-                }
 
                 document.getElementById('formContainer').classList.add('hidden');
                 const successText = document.getElementById('successText');
