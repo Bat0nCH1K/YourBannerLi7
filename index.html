@@ -40,6 +40,8 @@
         .success.active { display: block; }
         .form-container.hidden { display: none; }
         .note { text-align: center; color: var(--text-secondary); font-size: 12px; margin-top: 12px; }
+        .images-preview { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+        .images-preview img { width: 60px; height: 60px; object-fit: cover; border-radius: 8px; }
     </style>
 </head>
 <body>
@@ -59,8 +61,13 @@
                 </select>
             </div>
             <div class="form-group"><label>Текст поста</label><textarea id="postText" placeholder="Опиши свою идею..."></textarea></div>
-            <div class="form-group"><label>Дата и время показа</label><input type="datetime-local" id="startTime"></div>
-            <div class="form-group"><label>Длительность (минут)</label><input type="number" id="duration" value="30" min="1" max="120"></div>
+            <div class="form-group">
+                <label>Картинки (можно несколько)</label>
+                <input type="file" id="postImages" accept="image/*" multiple onchange="previewImages()">
+                <div class="images-preview" id="imagesPreview"></div>
+            </div>
+            <div class="form-group"><label>Дата показа</label><input type="date" id="startDate"></div>
+            <div class="form-group"><label>Длительность (дней)</label><input type="number" id="duration" value="1" min="1" max="30"></div>
             <button class="btn" id="submitBtn" onclick="sendToTelegram()">📤 Отправить</button>
             <p class="note">Заявка уйдёт админу в Telegram</p>
         </div>
@@ -74,26 +81,74 @@
     <script>
         const BOT_TOKEN = '8645752280:AAEi-rfUxaMtVmGaj-7E4fsvfkdVGVRKeFg';
         const CHAT_ID = '6468705214';
+        let uploadedImages = [];
+
+        function previewImages() {
+            uploadedImages = [];
+            const preview = document.getElementById('imagesPreview');
+            preview.innerHTML = '';
+            Array.from(document.getElementById('postImages').files).forEach(file => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    uploadedImages.push(e.target.result);
+                    const img = document.createElement('img');
+                    img.src = e.target.result;
+                    preview.appendChild(img);
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
         async function sendToTelegram() {
             const name = document.getElementById('userName').value.trim();
             const status = document.getElementById('userStatus').value;
             const text = document.getElementById('postText').value.trim();
-            const startTime = document.getElementById('startTime').value;
-            const duration = document.getElementById('duration').value || 30;
+            const startDate = document.getElementById('startDate').value;
+            const duration = parseInt(document.getElementById('duration').value) || 1;
             const btn = document.getElementById('submitBtn');
+
             if (!name || !status || !text) return alert('Заполни имя, статус и текст');
-            if (!startTime) return alert('Выбери дату и время');
-            if (new Date(startTime).getFullYear() > 2030) return alert('Дата слишком далеко');
+            if (!startDate) return alert('Выбери дату');
+            if (new Date(startDate).getFullYear() > 2030) return alert('Дата слишком далеко');
+
             btn.disabled = true; btn.textContent = 'Отправка...';
-            const message = `📺 <b>Новая заявка!</b>\n\n<b>Имя:</b> ${name}\n<b>Статус:</b> ${status}\n<b>Дата показа:</b> ${startTime}\n<b>Длительность:</b> ${duration} мин\n\n<b>Предложение:</b>\n${text}`;
+
+            // Формируем текст сообщения
+            let message = `📺 <b>Новая заявка!</b>\n\n`;
+            message += `<b>Имя:</b> ${name}\n`;
+            message += `<b>Статус:</b> ${status}\n`;
+            message += `<b>Дата показа:</b> ${startDate}\n`;
+            message += `<b>Длительность:</b> ${duration} дн.\n\n`;
+            message += `<b>Предложение:</b>\n${text}`;
+
+            // Если есть картинки — отправляем их отдельными сообщениями
             try {
                 await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ chat_id: CHAT_ID, text: message, parse_mode: 'HTML' })
                 });
+
+                // Отправляем картинки (каждую отдельным сообщением с подписью)
+                for (let i = 0; i < uploadedImages.length; i++) {
+                    const caption = i === 0 ? `🖼 Картинки к заявке от ${name}` : '';
+                    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            chat_id: CHAT_ID,
+                            photo: uploadedImages[i],
+                            caption: caption,
+                            parse_mode: 'HTML'
+                        })
+                    });
+                }
+
                 document.getElementById('formContainer').classList.add('hidden');
                 document.getElementById('successMessage').classList.add('active');
-            } catch (e) { alert('Ошибка. Попробуй ещё раз.'); btn.disabled = false; btn.textContent = '📤 Отправить'; }
+            } catch (e) {
+                alert('Ошибка. Попробуй ещё раз.');
+                btn.disabled = false; btn.textContent = '📤 Отправить';
+            }
         }
     </script>
 </body>
